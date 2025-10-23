@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// **********************************************
 /// نماذج البيانات (Models)
@@ -33,38 +31,27 @@ class PropertyItem {
   final int id;
   final String name;
 
-  PropertyItem({
-    required this.id,
-    required this.name,
-  });
+  PropertyItem({required this.id, required this.name});
 
   factory PropertyItem.fromJson(Map<String, dynamic> json) {
-    return PropertyItem(
-      id: json['id'] as int,
-      name: json['name'] as String,
-    );
+    return PropertyItem(id: json['id'] as int, name: json['name'] as String);
   }
 }
 
 /// **********************************************
-/// الخدمة الرئيسية DashboardService (تتعامل مع Supabase)
+/// الخدمة الرئيسية DashboardService
 /// **********************************************
 
 class DashboardService {
   late final SupabaseClient client;
 
   DashboardService() {
-    // قراءة القيم من ملف .env
-    final supabaseUrl = dotenv.env['NEXT_PUBLIC_SUPABASE_URL'];
-    final supabaseAnonKey = dotenv.env['NEXT_PUBLIC_SUPABASE_ANON_KEY'];
-
-    if (supabaseUrl == null || supabaseAnonKey == null) {
-      throw Exception(
-        '❌ تأكد من وجود مفاتيح NEXT_PUBLIC_SUPABASE_URL و NEXT_PUBLIC_SUPABASE_ANON_KEY في ملف .env',
-      );
+    try {
+      client = Supabase.instance.client;
+    } catch (e) {
+      // نكتفي برمي استثناء عام عند فشل التهيئة
+      throw Exception('Supabase Client not initialized.');
     }
-
-    client = SupabaseClient(supabaseUrl, supabaseAnonKey);
   }
 
   /// **********************************************
@@ -72,49 +59,32 @@ class DashboardService {
   /// **********************************************
   Future<int> _fetchCount(String tableName) async {
     try {
-      final response = await client.from(tableName).select('id');
-      return response.length;
-    } on PostgrestException catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Supabase Error fetching count for $tableName: ${e.message}');
-      }
-      return 0;
+      final int count = await client.from(tableName).count();
+      return count;
     } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ General Error fetching count for $tableName: $e');
-      }
-      return 0;
+      return 0; // نرجع صفر عند أي خطأ في الجلب
     }
   }
 
   /// **********************************************
   /// دالة لجمع القيم المالية (مثل الإيرادات والمصروفات)
   /// **********************************************
-  Future<double> _fetchFinancialSum(String tableName, {String? matchType}) async {
+  Future<double> _fetchFinancialSum(
+    String tableName, {
+    String? matchType,
+  }) async {
     try {
-      var query = client.from(tableName).select('amount');
+      var query = client.from(tableName).select('amount.sum');
+
       if (matchType != null) {
         query = query.eq('type', matchType);
       }
 
-      final List<Map<String, dynamic>> response = await query;
-      double total = 0.0;
-
-      for (final item in response) {
-        total += (item['amount'] as num?)?.toDouble() ?? 0.0;
-      }
-
+      final response = await query.single();
+      final double total = (response['amount'] as num?)?.toDouble() ?? 0.0;
       return total;
-    } on PostgrestException catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Supabase Error fetching financial sum for $tableName: ${e.message}');
-      }
-      return 0.0;
     } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ General Error fetching financial sum for $tableName: $e');
-      }
-      return 0.0;
+      return 0.0; // نرجع صفر عند أي خطأ في الجلب
     }
   }
 
@@ -129,16 +99,8 @@ class DashboardService {
           .order('name', ascending: true);
 
       return response.map((item) => PropertyItem.fromJson(item)).toList();
-    } on PostgrestException catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Supabase Error fetching properties list: ${e.message}');
-      }
-      return [];
     } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ General Error fetching properties list: $e');
-      }
-      return [];
+      return []; // نرجع قائمة فارغة عند أي خطأ
     }
   }
 
@@ -147,14 +109,18 @@ class DashboardService {
   /// **********************************************
   Future<DashboardStats> fetchDashboardStats() async {
     final propertiesFuture = _fetchCount('properties');
-    final unitsFuture = _fetchCount('units');
+    final unitsFuture = _fetchCount('uints'); // جدول الوحدات
     final ownersFuture = _fetchCount('owners');
     final customersFuture = _fetchCount('customers');
-    final inflowsFuture =
-        _fetchFinancialSum('incomes_and_outcomes', matchType: 'income');
-    final outflowsFuture =
-        _fetchFinancialSum('incomes_and_outcomes', matchType: 'outcome');
-    final dueRentsFuture = _fetchCount('rent');
+    final inflowsFuture = _fetchFinancialSum(
+      'incomes_and_outcomes',
+      matchType: 'income',
+    );
+    final outflowsFuture = _fetchFinancialSum(
+      'incomes_and_outcomes',
+      matchType: 'outcome',
+    );
+    final dueRentsFuture = _fetchCount('rent'); // جدول الإيجارات/الديون
 
     final results = await Future.wait([
       propertiesFuture,

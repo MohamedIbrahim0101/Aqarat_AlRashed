@@ -1,11 +1,20 @@
+// lib/screens/PropertiesManageScreen.dart
+
 import 'dart:ui' as fw;
+import 'dart:developer'; 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-// افترض أنك وضعت ملف UnitsScreen.dart في نفس المجلد
-import 'package:my_app/widgets/unitsScreen.dart'; // ⚠️ يجب إنشاء هذا الملف
-import 'package:my_app/dashboardScreen.dart' show primaryBlue, backgroundColor;
-import 'package:my_app/models/PropertyService.dart';
+// ⚠️ تأكد من أن مسارات الاستيراد التالية صحيحة في مشروعك:
+import 'package:my_app/widgets/AddPropertyScreen.dart' hide backgroundColor, primaryBlue;
+import 'package:my_app/widgets/Edit_prperties_screen.dart';
+// 👈🏻 هذا الملف يوفّر UnitController
+import 'package:my_app/widgets/unit_manage_screen.dart' hide primaryBlue, backgroundColor; 
+import 'package:my_app/widgets/unitsScreen.dart'; 
+// 💡 افتراض: الألوان مُعرّفة هنا
+import 'package:my_app/widgets/dashboardScreen.dart' show primaryBlue, backgroundColor; 
+import 'package:my_app/services/PropertyService.dart'; 
 import 'package:my_app/models/Propertymodel.dart';
+
 
 class PropertiesManageScreen extends StatefulWidget {
   final PropertyService service;
@@ -45,7 +54,7 @@ class _PropertiesManageScreenState extends State<PropertiesManageScreen> {
         _errorMessage = 'فشل في تحميل العقارات: ${e.toString()}';
         _isLoading = false;
       });
-      print(_errorMessage);
+      log('Error fetching properties: $_errorMessage', name: 'PropertiesManage');
     }
   }
 
@@ -67,35 +76,102 @@ class _PropertiesManageScreenState extends State<PropertiesManageScreen> {
     );
   }
   
-  // 🆕 دالة لمعالجة النقر على عدد الوحدات والانتقال للشاشة الجديدة
+  // دالة لمعالجة النقر على الصف والانتقال للشاشة الجديدة
   void _onUnitsSelected(PropertyDetails property) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => UnitsScreen(
-          property: property,
-          service: widget.service,
+          // ✅ تم حل مشكلة تضارب الأنواع: UnitController الآن مستورد من unit_manage_screen.dart
+          controller: UnitController(), 
+          propertyIdFilter: property.id, // 💡 يفضل تمرير فلترة لمعرّف العقار
         ),
       ),
+    );
+  }
+  
+  // دالة لمعالجة النقر على زر إضافة عقار
+  void _navigateToAddProperty() async { // استخدام async
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => AddPropertyScreen(service: widget.service), 
+      ),
+    );
+    // تحديث القائمة بعد إضافة عقار جديد
+    if (result == true) { 
+      _fetchProperties();
+    }
+  }
+
+  // 🆕 دالة لمعالجة النقر على زر تعديل عقار والانتقال
+  void _navigateToEditProperty(PropertyDetails property) async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => EditPropertiesScreen( 
+          property: property, // تمرير بيانات العقار المراد تعديله
+        ),
+      ),
+    );
+
+    // تحديث القائمة عند العودة من شاشة التعديل إذا تم التعديل بنجاح
+    if (result == true) { 
+      _fetchProperties();
+    }
+  }
+
+  // 🆕 دالة تنفيذ عملية الحذف الفعلية
+  Future<void> _deletePropertyLogic(int propertyId, String propertyName) async {
+    try {
+      await widget.service.deleteProperty(propertyId); 
+      _showMessage('نجاح', 'تم حذف العقار "$propertyName" بنجاح.');
+      // تحديث القائمة بعد الحذف
+      _fetchProperties(); 
+    } catch (e) {
+      _showMessage('خطأ', 'فشل في حذف العقار "$propertyName": ${e.toString()}');
+      log('Error deleting property: ${e.toString()}', name: 'PropertiesManage');
+    }
+  }
+
+  // 🆕 دالة عرض مربع حوار تأكيد الحذف
+  void _confirmDelete(PropertyDetails property) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('تأكيد الحذف', textDirection: fw.TextDirection.rtl),
+          content: Text('هل أنت متأكد من حذف العقار "${property.name}" نهائياً؟ ستُحذف جميع بياناته من Supabase.', textDirection: fw.TextDirection.rtl),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('إلغاء', textDirection: fw.TextDirection.rtl),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // إغلاق مربع الحوار
+                _deletePropertyLogic(property.id, property.name); // بدء عملية الحذف
+              },
+              child: const Text('حذف نهائي', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold), textDirection: fw.TextDirection.rtl),
+            ),
+          ],
+        );
+      },
     );
   }
 
   DataColumn _buildHeader(String title) {
     return DataColumn(
-      label: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16.0),
-        child: Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
-          ),
-          textAlign: TextAlign.right,
+      label: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
         ),
+        textDirection: fw.TextDirection.rtl, 
       ),
     );
   }
 
+  // 🔄 الدالة المُعدّلة: إضافة onSelectChanged لجعل الصف كاملاً قابلاً للنقر
   DataRow _buildPropertyRow(PropertyDetails property) {
     final currencyFormatter = NumberFormat.currency(
       locale: 'ar',
@@ -104,6 +180,13 @@ class _PropertiesManageScreenState extends State<PropertiesManageScreen> {
     );
 
     return DataRow(
+      // ✅ تفعيل النقر على الصف للانتقال لشاشة الوحدات
+      onSelectChanged: (isSelected) {
+        if (isSelected == true) { 
+          _onUnitsSelected(property);
+        }
+      },
+      selected: false, 
       color: MaterialStateProperty.resolveWith<Color?>(
         (Set<MaterialState> states) =>
             property.id.isEven ? Colors.grey.shade50 : Colors.white,
@@ -119,23 +202,14 @@ class _PropertiesManageScreenState extends State<PropertiesManageScreen> {
         DataCell(Text(property.ownerName, textDirection: fw.TextDirection.rtl)),
         DataCell(Text(property.address, textDirection: fw.TextDirection.rtl)),
         DataCell(Text(currencyFormatter.format(property.totalValue))),
-        // 🆕 تم تعديل خانة الوحدات لتكون قابلة للنقر
+        // ❌ تم إزالة InkWell من حول عدد الوحدات
         DataCell(
-          InkWell(
-            onTap: () => _onUnitsSelected(property),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    property.unitsCount.toString(),
-                    style: TextStyle(color: primaryBlue, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.arrow_forward_ios, size: 14, color: primaryBlue),
-                ],
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Text(
+              property.unitsCount.toString(),
+              style: TextStyle(color: primaryBlue, fontWeight: FontWeight.bold),
+              textDirection: fw.TextDirection.rtl,
             ),
           ),
         ),
@@ -144,24 +218,23 @@ class _PropertiesManageScreenState extends State<PropertiesManageScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                icon: const Icon(Icons.security, color: primaryBlue),
+                icon: const Icon(Icons.edit, color: primaryBlue),
                 onPressed: () {
-                  _showMessage('عرض/تعديل', 'تعديل العقار ID: ${property.id}');
+                  _navigateToEditProperty(property);
                 },
                 tooltip: 'عرض/تعديل العقار',
               ),
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.red),
                 onPressed: () {
-                  _showMessage(
-                    'حذف',
-                    'هل أنت متأكد من حذف العقار ${property.name}؟',
-                  );
+                  _confirmDelete(property);
                 },
                 tooltip: 'حذف العقار',
               ),
             ],
           ),
+          // ✅ منع النقر على خلية العمليات من تفعيل onSelectChanged للصف
+          onTap: () {}, 
         ),
       ],
     );
@@ -172,13 +245,13 @@ class _PropertiesManageScreenState extends State<PropertiesManageScreen> {
     return Directionality(
       textDirection: fw.TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: backgroundColor,
+        backgroundColor: backgroundColor, 
         appBar: AppBar(
           title: const Text(
             'إدارة العقارات',
             style: TextStyle(color: Colors.white),
           ),
-          backgroundColor: primaryBlue,
+          backgroundColor: primaryBlue, 
           iconTheme: const IconThemeData(color: Colors.white),
         ),
         body: SingleChildScrollView(
@@ -219,12 +292,7 @@ class _PropertiesManageScreenState extends State<PropertiesManageScreen> {
                       ),
                       const SizedBox(width: 10),
                       ElevatedButton.icon(
-                        onPressed: () {
-                          _showMessage(
-                            'إضافة عقار',
-                            'سيتم الانتقال إلى صفحة إضافة عقار جديدة.',
-                          );
-                        },
+                        onPressed: _navigateToAddProperty, 
                         icon: const Icon(
                           Icons.add,
                           color: Colors.white,
@@ -303,12 +371,12 @@ class _PropertiesManageScreenState extends State<PropertiesManageScreen> {
                                 ),
                                 columns: [
                                   _buildHeader('ID'),
-                                  _buildHeader('Name'),
-                                  _buildHeader('Owner Name'),
-                                  _buildHeader('Address'),
-                                  _buildHeader('Total Value'),
-                                  _buildHeader('Units'),
-                                  _buildHeader('Operations'),
+                                  _buildHeader('الاسم'),
+                                  _buildHeader('اسم المالك'),
+                                  _buildHeader('العنوان'),
+                                  _buildHeader('القيمة الإجمالية'),
+                                  _buildHeader('الوحدات'),
+                                  _buildHeader('العمليات'),
                                 ],
                                 rows: _properties
                                     .map(

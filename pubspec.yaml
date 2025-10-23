@@ -14,9 +14,15 @@ dependencies:
   fl_chart: ^0.66.1
   provider: ^6.0.5
   intl: ^0.18.1
-  supabase_flutter: ^2.10.3
-  flutter_dotenv: ^6.0.0 # لإدارة ملف .env
+  supabase_flutter: ^2.0.0  # هذه الحزمة تجلب postgrest تلقائياً
+  flutter_dotenv: ^6.0.0 
+  csv: ^5.1.1 
+  path_provider: ^2.1.3
+  url_launcher: ^6.2.6
+  shared_preferences: ^2.1.1
 
+  # 🛑 تم حذف postgrest: ^a.b.c
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter
